@@ -16,13 +16,15 @@
  */
 package org.apache.nifi.atlas.hook;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
 import org.apache.atlas.hook.AtlasHook;
 import org.apache.atlas.notification.hook.HookNotification.HookNotificationMessage;
 import org.apache.nifi.atlas.NiFiAtlasClient;
 import org.apache.nifi.atlas.provenance.lineage.LineageContext;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * This class is not thread-safe as it holds uncommitted notification messages within instance.
@@ -37,6 +39,8 @@ public class NiFiAtlasHook extends AtlasHook implements LineageContext {
 
     private NiFiAtlasClient atlasClient;
 
+    private final BlockingQueue<HookNotificationMessage> messages = new LinkedBlockingQueue<>();
+
     public void setAtlasClient(NiFiAtlasClient atlasClient) {
         this.atlasClient = atlasClient;
     }
@@ -46,9 +50,6 @@ public class NiFiAtlasHook extends AtlasHook implements LineageContext {
         return HOOK_NUM_RETRIES;
     }
 
-
-    private final List<HookNotificationMessage> messages = new ArrayList<>();
-
     @Override
     public void addMessage(HookNotificationMessage message) {
         messages.add(message);
@@ -57,7 +58,9 @@ public class NiFiAtlasHook extends AtlasHook implements LineageContext {
     public void commitMessages() {
         final NotificationSender notificationSender = new NotificationSender();
         notificationSender.setAtlasClient(atlasClient);
-        notificationSender.send(messages, this::notifyEntities);
+        final List<HookNotificationMessage> messageBatch = new ArrayList<>();
+        messages.drainTo(messageBatch);
+        notificationSender.send(messageBatch, this::notifyEntities);
     }
 
     public void close() {
